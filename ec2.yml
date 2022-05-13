@@ -47,10 +47,6 @@ Parameters:
   pBootstrapUrl:
     Type: String
     Description: URL to download and execute a bash script. This field is not required.
-  pRole:
-    Type: String
-    Default: csr-Ec2-Role-LP
-    Description: Enter the role name (instance profile). If you do not know what instance profiles are, leave default in place.
   pSubnet:
     Description: The subnet to launch the instance in to. It must be part of the VPC chosen above.
     Type: AWS::EC2::Subnet::Id
@@ -139,7 +135,6 @@ Rules:
         AssertDescription: All subnets must in the VPC
 
 Conditions:
-  cHasRole: !Not [!Equals ["", !Ref pRole]]
   cUseBootstrapUrl: !Not [!Equals ["", !Ref pBootstrapUrl]]
 
 Resources:
@@ -169,7 +164,7 @@ Resources:
       ImageId: !Ref pOperatingSystem
       InstanceType: !Ref pInstanceType
       Monitoring: true
-      IamInstanceProfile: !If [cHasRole, !Ref pRole, !Ref "AWS::NoValue"]
+      IamInstanceProfile: !Ref rec2InstanceProfile
       SourceDestCheck: true
       SubnetId: !Ref pSubnet
       SecurityGroupIds:
