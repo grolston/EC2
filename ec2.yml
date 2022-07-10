@@ -162,7 +162,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       ImageId: !Ref pOperatingSystem
-      InstanceType: !Ref pInstanceType
+
       Monitoring: true
       IamInstanceProfile: !Ref rec2InstanceProfile
       SourceDestCheck: true
