@@ -159,10 +159,10 @@ Resources:
           Value: !Ref pTagNameValue
 
   rLinuxEc2:
-    Type: AWS::EC2::Instance
+    Type: 
     Properties:
       ImageId: !Ref pOperatingSystem
-
+      InstanceType: !Ref pInstanceType
       Monitoring: true
       IamInstanceProfile: !Ref rec2InstanceProfile
       SourceDestCheck: true
