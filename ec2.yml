@@ -177,19 +177,61 @@ Resources:
       Tags:
         - Key: Name
           Value: !Ref pTagNameValue
+          Metadata:
+      Comment: Install configure CWLogs
+      AWS::CloudFormation::Init:
+        config:
+          files:
+            # Build our CWLogs Agent Configuration File, used in cloud init UserData below
+            # see https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/AgentReference.html
+            "/etc/awslogs/awslogs.conf":
+              content: !Sub |
+                # writen by aws clodformation stack ${AWS::StackId}
+                [general]
+                state_file = /var/awslogs/agent-state
+                # SSM Agent Logs
+                # https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-agent-logs.html
+                [/var/log/amazon/ssm/amazon-ssm-agent.log]
+                file = /var/log/amazon/ssm/amazon-ssm-agent.log
+                log_group_name = ${Ec2InstanceSsmAgentLogGroup}
+                log_stream_name = {instance_id}/ssm-agent.log
+                datetime_format = %Y-%m-%d %H:%M:%S
+                [/var/log/amazon/ssm/errors.log]
+                file = /var/log/amazon/ssm/errors.log
+                log_group_name = ${Ec2InstanceSsmErrorLogGroup}
+                log_stream_name = {instance_id}/ssm-error.log
+                datetime_format = %Y-%m-%d %H:%M:%S
+            # The log group will be created in region specified in /etc/awslogs/awscli.conf
+            # write this temp file we will move into place in cloud init script below
+            "/etc/awslogs/awscli.replace.conf":
+              content: !Sub |
+                # writen by aws clodformation stack ${AWS::StackId}
+                [plugins]
+                cwlogs = cwlogs
+                [default]
+                region = ${AWS::Region}
       UserData:
-        Fn::Base64: !Sub
-          - |
-            #!/bin/bash
-            ${curlUrl}
-          - {
-              curlUrl:
-                !If [
-                  cUseBootstrapUrl,
-                  !Sub "curl -fsS ${pBootstrapUrl} | bash",
-                  "",
-                ],
-            }
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          # Get the latest CloudFormation package
+          yum update -y aws-cfn-bootstrap
+          # Start cfn-init
+          /opt/aws/bin/cfn-init -s ${AWS::StackId} -r Ec2Instance --region ${AWS::Region} || error_exit 'Failed to run cfn-init'
+          # make the needed dir for the cwlogs state_file
+          mkdir /var/awslogs
+          # Get the CloudWatch Logs agent
+          yum install -y awslogs
+          # overwrite awscli.conf with our copy
+          mv /etc/awslogs/awscli.replace.conf /etc/awslogs/awscli.conf
+          # Install the CloudWatch Logs agent (works with AWS Linux[1] or 2)
+          if command -v systemctl >/dev/null; then systemctl start awslogsd; else service awslogs start; fi
+          # Enable start on reboot (works with AWS Linux[1] or 2)
+          if command -v systemctl >/dev/null; then systemctl enable awslogsd.service; else chkconfig awslogs on; fi
+          # change the login shell for ssm-user, although amazon-ssm-agent still forces /bin/sh
+          # https://github.com/aws/amazon-ssm-agent/issues/131
+          usermod --shell /bin/bash ssm-user
+          # All done so signal success
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource Ec2Instance --region ${AWS::Region}
 
   ## Instance Profiles
   ## EC2 IAM Roles
@@ -207,6 +249,7 @@ Resources:
       ManagedPolicyArns:
       - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
       - !Sub 'arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy'
+      - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess'
 
   rec2InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -215,6 +258,16 @@ Resources:
       Path: /
       Roles:
         - !Ref rEc2Role
+        
+  Ec2InstanceSsmAgentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+      
+  Ec2InstanceSsmErrorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
 
 Outputs:
   oLinuxEc2InstanceId:
